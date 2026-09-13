@@ -8,7 +8,6 @@ import TrainModelVertical from './TrainModelVertical';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { preparePlate } from './plates';
 
-// Balanced exposure & higher sharpening factor on District 4 & 5 to defeat blurriness
 const plates = {
   '/assets/District1Bg.jpeg': { exposure: 0.90, contrast: 1.15, saturation: 0.92, shade: 0.65, sharpen: 0.35 },
   '/assets/District2Bg.png': { exposure: 0.86, contrast: 1.14, saturation: 0.90, shade: 0.68, sharpen: 0.40 },
@@ -111,7 +110,6 @@ function Preloader({ progress, visible }) {
   );
 }
 
-// Clean transform without CSS blur or heavy scale shifts that trigger GPU downsampling
 const bgVariants = {
   enter: ({ dir, isMobile }) => ({
     opacity: 0,
@@ -158,16 +156,10 @@ function Backdrop({ index, dir, plateUrls, isMobile }) {
         />
       </AnimatePresence>
 
-      {/* Desktop side vignetting to cradle 3D train and typography */}
       <div className="absolute inset-0 hidden lg:block bg-[linear-gradient(90deg,rgba(5,6,8,0.52)_0%,rgba(5,6,8,0.14)_22%,rgba(5,6,8,0.08)_45%,rgba(5,6,8,0.58)_75%,rgba(5,6,8,0.85)_100%)]" />
-
-      {/* Atmospheric overhead shadow */}
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(5,6,8,0.65)_0%,rgba(5,6,8,0.06)_20%,rgba(5,6,8,0.18)_65%,rgba(5,6,8,0.65)_100%)]" />
-
-      {/* Mobile bottom readability shield (concentrated only over the bottom info deck) */}
       <div className="absolute inset-0 lg:hidden bg-[linear-gradient(0deg,rgba(5,6,8,0.92)_0%,rgba(5,6,8,0.72)_48%,rgba(5,6,8,0)_78%)]" />
 
-      {/* Subtle radial center vignette */}
       <motion.div
         className="absolute inset-0 bg-[radial-gradient(ellipse_75%_65%_at_50%_100%,rgba(5,6,8,0.6),rgba(5,6,8,0.25)_50%,transparent_85%)] lg:bg-[radial-gradient(ellipse_55%_75%_at_78%_52%,rgba(5,6,8,0.68),rgba(5,6,8,0.32)_50%,transparent_85%)]"
         initial={false}
@@ -347,7 +339,6 @@ function DesktopVerticalArrowRail({ index, onSelect }) {
             </linearGradient>
           </defs>
 
-          {/* Top Tail Cap */}
           <line
             x1="8"
             y1="8"
@@ -358,7 +349,6 @@ function DesktopVerticalArrowRail({ index, onSelect }) {
             filter="url(#desk-gold-glow)"
           />
 
-          {/* Guide Track Line */}
           <line
             x1="15"
             y1="8"
@@ -368,7 +358,6 @@ function DesktopVerticalArrowRail({ index, onSelect }) {
             strokeWidth="1.2"
           />
 
-          {/* Vertical Shaft (x1=15, x2=15 straight down) */}
           <motion.line
             x1="15"
             y1="8"
@@ -382,7 +371,6 @@ function DesktopVerticalArrowRail({ index, onSelect }) {
             transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
           />
 
-          {/* Downward Arrowhead */}
           <polygon
             points="9,420 21,420 15,436"
             fill="#f0d48f"
@@ -685,16 +673,13 @@ export default function Timeline() {
   return (
     <MotionConfig reducedMotion="user">
       <main className="relative h-[100svh] w-full overflow-clip select-none bg-[var(--ink)]">
-        {/* Layer 1: Enhanced Background Plate */}
         <Backdrop index={index} dir={dir} plateUrls={plateUrls} isMobile={isMobile} />
 
-        {/* Layer 2: Atmosphere Fog */}
         <AmbientBackgroundFog isMobile={isMobile} />
 
-        {/* Transition Fog Curtain */}
         <RealisticFogCurtain isVisible={isFogActive} isMobile={isMobile} dir={dir} />
 
-        {/* Layer 3: 3D Scene */}
+        {/* 3D Scene */}
         <div className="absolute inset-0 z-30 pointer-events-none">
           <Canvas
             dpr={[1, 1.5]}
@@ -731,19 +716,17 @@ export default function Timeline() {
           </Canvas>
         </div>
 
-        {/* Layer 4: Grain */}
         <div className="absolute inset-0 z-[35] overflow-hidden pointer-events-none">
           <div className="grain" />
         </div>
 
-        {/* Layer 5: UI Content Stack */}
+        {/* UI Content Stack */}
         <motion.div
           className="absolute inset-0 z-40 pointer-events-none"
           initial={{ opacity: 0 }}
           animate={{ opacity: ready ? 1 : 0 }}
           transition={{ duration: 1.2, delay: 0.6, ease: 'easeOut' }}
         >
-          {/* Header */}
           <header className="absolute top-[var(--pad-y)] inset-x-[var(--pad-x)] flex items-center justify-between pointer-events-auto">
             <div className="flex items-center gap-2.5 sm:gap-5">
               <span className="font-display text-[14px] sm:text-[20px] tracking-[0.32em] text-[var(--ivory)]">
@@ -753,13 +736,12 @@ export default function Timeline() {
             </div>
           </header>
 
-          {/* Desktop Left Rail */}
           <div className="pointer-events-auto">
             <DesktopVerticalArrowRail index={index} onSelect={go} />
           </div>
 
-          {/* 1. TEXT INFO: Positioned above arrow on mobile */}
-          <section className="absolute inset-x-[var(--pad-x)] bottom-[calc(var(--pad-y)+7.4rem)] max-w-[36rem] lg:bottom-auto lg:max-w-none lg:inset-x-auto lg:top-1/2 lg:-translate-y-1/2 lg:right-[calc(var(--pad-x)+0.5rem)] lg:w-[min(38rem,42vw)] pointer-events-auto">
+          {/* 1. TEXT INFO: Positioned further to the right on desktop (lg:right-[var(--pad-x)]) with max width bounded to prevent train collision */}
+          <section className="absolute inset-x-[var(--pad-x)] bottom-[calc(var(--pad-y)+7.4rem)] max-w-[36rem] lg:bottom-auto lg:max-w-none lg:inset-x-auto lg:top-1/2 lg:-translate-y-1/2 lg:right-[var(--pad-x)] lg:w-[min(34rem,36vw)] pointer-events-auto">
             <StopCopy index={index} />
           </section>
 
