@@ -2,12 +2,12 @@ import { useRef, useState, useEffect, useCallback, Suspense } from 'react';
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion';
 import { Canvas } from '@react-three/fiber';
 import { Environment, useProgress } from '@react-three/drei';
-import TrainModel from './TrainModel';
+
+import TrainModelHorizontal from './TrainModel';
+import TrainModelVertical from './TrainModelVertical';
+import { useIsMobile } from './hooks/useMediaQuery';
 import { preparePlate } from './plates';
 
-// Per-plate grade, baked in by preparePlate: a touch of contrast for clarity,
-// lift for the darkest plate, and a gentler exposure for the daylight Capitol.
-// `shade` is how strongly the scrim behind the copy darkens that plate (brighter plates need more).
 const plates = {
   '/assets/District1Bg.jpeg': { exposure: 1.2, contrast: 1.1, saturation: 1.05, shade: 0.5 },
   '/assets/District2Bg.png': { exposure: 1.0, contrast: 1.08, saturation: 1.0, shade: 0.7 },
@@ -17,7 +17,6 @@ const plates = {
   '/assets/CapitolBg.jpg': { exposure: 0.76, contrast: 1.06, saturation: 0.92, shade: 1 },
 };
 
-// Real stops use the copy transcribed from the Text1–6 cards.
 const stops = [
   {
     id: 'd13',
@@ -76,11 +75,12 @@ const stops = [
 ];
 
 const TOTAL = stops.length;
+const VIRTUAL_TOTAL_STEPS = TOTAL + 1;
+
 const TRANSITION_MS = 950;
 const EASE = [0.16, 1, 0.3, 1];
 const pad = (n) => String(n).padStart(2, '0');
 
-// ================= PRELOADER =================
 function Preloader({ progress, visible }) {
   return (
     <AnimatePresence>
@@ -106,10 +106,6 @@ function Preloader({ progress, visible }) {
   );
 }
 
-// ================= BACKGROUND PLATES =================
-// Settles at exactly 1:1 so the plate is pixel-crisp at rest; it only moves mid-fade.
-// The outgoing plate is swept back past the train with a touch of motion blur; the next one
-// slides in from ahead. Overscale always exceeds the shift, so edges never show.
 const bgVariants = {
   enter: (dir) => ({ opacity: 0, scale: 1.12, x: `${dir * 5}%`, filter: 'blur(6px)' }),
   center: { opacity: 1, scale: 1, x: '0%', filter: 'blur(0px)' },
@@ -117,7 +113,8 @@ const bgVariants = {
 };
 
 function Backdrop({ index, dir, plateUrls }) {
-  const stop = stops[index];
+  const activeIdx = Math.min(index, TOTAL - 1);
+  const stop = stops[activeIdx];
   return (
     <div className="absolute inset-0 overflow-hidden">
       <AnimatePresence initial={false} custom={dir}>
@@ -134,12 +131,10 @@ function Backdrop({ index, dir, plateUrls }) {
         />
       </AnimatePresence>
 
-      {/* Shade only where type sits; the plate itself stays clean */}
       <div className="absolute inset-0 hidden lg:block bg-[linear-gradient(90deg,rgba(7,8,10,0.25)_0%,rgba(7,8,10,0)_14%,rgba(7,8,10,0)_60%,rgba(7,8,10,0.6)_82%,rgba(7,8,10,0.76)_100%)]" />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,8,10,0.55)_0%,rgba(7,8,10,0)_15%,rgba(7,8,10,0)_72%,rgba(7,8,10,0.6)_100%)]" />
-      {/* Stacked layouts: copy sits low, so shade from the middle down */}
       <div className="absolute inset-0 lg:hidden bg-[linear-gradient(180deg,rgba(7,8,10,0)_38%,rgba(7,8,10,0.86)_68%,rgba(7,8,10,0.96)_100%)]" />
-      {/* Local scrim behind the copy — stronger on bright plates so the type always reads */}
+
       <motion.div
         className="absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_100%,rgba(7,8,10,0.85),rgba(7,8,10,0.5)_50%,transparent_80%)] lg:bg-[radial-gradient(ellipse_40%_60%_at_79%_52%,rgba(7,8,10,0.8),rgba(7,8,10,0.5)_50%,transparent_80%)]"
         initial={false}
@@ -150,7 +145,6 @@ function Backdrop({ index, dir, plateUrls }) {
   );
 }
 
-// ================= STEAM SWEEP (between stops) =================
 function SteamSweep({ index, dir, enabled }) {
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -174,7 +168,6 @@ function SteamSweep({ index, dir, enabled }) {
   );
 }
 
-// ================= SEAL =================
 function Seal({ stop }) {
   return (
     <img
@@ -186,7 +179,6 @@ function Seal({ stop }) {
   );
 }
 
-// ================= LEFT RAIL =================
 function Rail({ index, onSelect }) {
   return (
     <nav
@@ -196,11 +188,11 @@ function Rail({ index, onSelect }) {
       <div className="absolute left-[4px] -top-8 -bottom-8 w-px bg-[var(--hair)]" />
       <motion.div
         className="absolute left-[4px] inset-y-0 w-px bg-[var(--gold-soft)] origin-top"
-        animate={{ scaleY: index / (TOTAL - 1) }}
+        animate={{ scaleY: Math.min(index, TOTAL - 1) / (TOTAL - 1) }}
         transition={{ duration: 1.1, ease: EASE }}
       />
       {stops.map((s, i) => {
-        const active = i === index;
+        const active = i === Math.min(index, TOTAL - 1);
         return (
           <button
             key={s.id}
@@ -226,11 +218,10 @@ function Rail({ index, onSelect }) {
               />
             </span>
             <span
-              className={`eyebrow tabular-nums transition-all duration-500 ${
-                active
-                  ? 'text-[var(--ivory)]'
-                  : 'text-[var(--ivory-faint)] group-hover:text-[var(--ivory-dim)] [@media(max-height:760px)]:opacity-0 group-hover:opacity-100'
-              }`}
+              className={`eyebrow tabular-nums transition-all duration-500 ${active
+                ? 'text-[var(--ivory)]'
+                : 'text-[var(--ivory-faint)] group-hover:text-[var(--ivory-dim)] [@media(max-height:760px)]:opacity-0 group-hover:opacity-100'
+                }`}
               style={{ letterSpacing: '0.2em' }}
             >
               {pad(i + 1)}
@@ -242,7 +233,6 @@ function Rail({ index, onSelect }) {
   );
 }
 
-// ================= STOP COPY =================
 const lineReveal = {
   hidden: { y: '105%' },
   show: (i) => ({ y: '0%', transition: { duration: 0.95, ease: EASE, delay: 0.18 + i * 0.07 } }),
@@ -259,7 +249,8 @@ const sealIn = {
 };
 
 function StopCopy({ index }) {
-  const stop = stops[index];
+  const activeIdx = Math.min(index, TOTAL - 1);
+  const stop = stops[activeIdx];
   return (
     <AnimatePresence mode="wait">
       <motion.article
@@ -270,7 +261,6 @@ function StopCopy({ index }) {
         className="w-full"
         aria-live="polite"
       >
-        {/* Identity row: seal | district + stop counter */}
         <div className="flex items-center gap-5 lg:gap-6">
           <motion.div variants={sealIn} className="shrink-0">
             <Seal stop={stop} />
@@ -280,7 +270,7 @@ function StopCopy({ index }) {
             <p className="eyebrow text-[var(--gold)]">{stop.district}</p>
             <div className="mt-3 flex items-center gap-4">
               <span className="eyebrow tabular-nums text-[var(--ivory-faint)]" style={{ letterSpacing: '0.2em' }}>
-                <span className="text-[var(--ivory)]">{pad(index + 1)}</span> / {pad(TOTAL)}
+                <span className="text-[var(--ivory)]">{pad(activeIdx + 1)}</span> / {pad(TOTAL)}
               </span>
               <span className="h-px flex-1 bg-[var(--hair)]" />
             </div>
@@ -311,13 +301,12 @@ function StopCopy({ index }) {
   );
 }
 
-// ================= NEXT STOP =================
 function NextStop({ index, onGo }) {
-  const next = stops[index + 1];
+  const next = index < TOTAL - 1 ? stops[index + 1] : null;
   return (
     <button
       type="button"
-      onClick={() => onGo(next ? index + 1 : 0)}
+      onClick={() => onGo(index < VIRTUAL_TOTAL_STEPS - 1 ? index + 1 : 0)}
       aria-label={next ? `Next stop: ${next.district}, ${next.title.join(' ')}` : 'Return to the first stop'}
       className="group ml-auto md:ml-0 flex items-center gap-4 sm:gap-5 min-w-0 cursor-pointer"
     >
@@ -330,7 +319,7 @@ function NextStop({ index, onGo }) {
           className="flex min-w-0 flex-col items-end text-right"
         >
           <span className="eyebrow text-[9.5px] text-[var(--ivory-faint)] tabular-nums">
-            {next ? `Next stop · ${pad(index + 2)}` : 'End of the line'}
+            {next ? `Next stop · ${pad(index + 2)}` : index === TOTAL - 1 ? 'Departing Capitol' : 'End of the line'}
           </span>
           <span className="mt-2 max-w-full truncate font-display text-[17px] sm:text-[19px] leading-none tracking-[0.02em] text-[var(--ivory)] transition-colors duration-500 group-hover:text-white">
             {next ? (
@@ -356,7 +345,7 @@ function NextStop({ index, onGo }) {
           stroke="currentColor"
           strokeWidth="1.3"
           aria-hidden="true"
-          className={next ? 'nudge' : 'rotate-180'}
+          className={index < VIRTUAL_TOTAL_STEPS - 1 ? 'nudge' : 'rotate-180'}
         >
           <path d="M4 12h15M13 6l6 6-6 6" />
         </svg>
@@ -365,7 +354,6 @@ function NextStop({ index, onGo }) {
   );
 }
 
-// ================= MAIN =================
 export default function Timeline() {
   const [index, setIndex] = useState(0);
   const [dir, setDir] = useState(1);
@@ -373,6 +361,8 @@ export default function Timeline() {
   const [hasMoved, setHasMoved] = useState(false);
   const [plateUrls, setPlateUrls] = useState({});
   const [platesReady, setPlatesReady] = useState(false);
+
+  const isMobile = useIsMobile(768);
   const { progress, active } = useProgress();
 
   const indexRef = useRef(0);
@@ -381,7 +371,6 @@ export default function Timeline() {
   const lastWheel = useRef(0);
   const touchY = useRef(null);
 
-  // Model loaded and plates prepared → lift the curtain
   useEffect(() => {
     if (progress >= 100 && !active && platesReady) {
       const id = setTimeout(() => setReady(true), 350);
@@ -389,8 +378,6 @@ export default function Timeline() {
     }
   }, [progress, active, platesReady]);
 
-  // Prepare each unique plate once (resample + sharpen + grade) behind the preloader.
-  // A plate that fails to process simply falls back to the original file.
   useEffect(() => {
     let cancelled = false;
     const made = [];
@@ -405,9 +392,9 @@ export default function Timeline() {
           made.push(out);
           setPlateUrls((prev) => ({ ...prev, [url]: out }));
         } catch {
-          // keep the original url
+          // fallback
         }
-        await new Promise((r) => setTimeout(r, 0)); // let the preloader breathe
+        await new Promise((r) => setTimeout(r, 0));
       }
       if (!cancelled) setPlatesReady(true);
     })();
@@ -423,7 +410,7 @@ export default function Timeline() {
   const go = useCallback(
     (next) => {
       const now = performance.now();
-      if (!ready || next < 0 || next >= TOTAL || next === indexRef.current || now < lockUntil.current) return;
+      if (!ready || next < 0 || next >= VIRTUAL_TOTAL_STEPS || next === indexRef.current || now < lockUntil.current) return;
       lockUntil.current = now + TRANSITION_MS;
       setDir(next > indexRef.current ? 1 : -1);
       setHasMoved(true);
@@ -433,21 +420,18 @@ export default function Timeline() {
     [ready]
   );
 
-  // Wheel, keyboard and touch all step one stop at a time
   useEffect(() => {
     const onWheel = (e) => {
       e.preventDefault();
       const now = performance.now();
-      // Swallow trackpad inertia: keep the lock alive while the gesture is still streaming
       if (now < lockUntil.current) {
         lockUntil.current = Math.max(lockUntil.current, now + 160);
         wheelAcc.current = 0;
         return;
       }
-      // Stale micro-deltas from an earlier gesture shouldn't add up to a surprise jump
       if (now - lastWheel.current > 220) wheelAcc.current = 0;
       lastWheel.current = now;
-      wheelAcc.current += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; // Firefox reports lines
+      wheelAcc.current += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       if (Math.abs(wheelAcc.current) > 50) {
         go(indexRef.current + Math.sign(wheelAcc.current));
         wheelAcc.current = 0;
@@ -461,7 +445,7 @@ export default function Timeline() {
         e.preventDefault();
         go(indexRef.current - 1);
       } else if (e.key === 'Home') go(0);
-      else if (e.key === 'End') go(TOTAL - 1);
+      else if (e.key === 'End') go(VIRTUAL_TOTAL_STEPS - 1);
     };
     const onTouchStart = (e) => {
       touchY.current = e.touches[0].clientY;
@@ -485,24 +469,23 @@ export default function Timeline() {
     };
   }, [go]);
 
+  const scrollProgress = index / (VIRTUAL_TOTAL_STEPS - 1);
+
   return (
     <MotionConfig reducedMotion="user">
       <main className="relative h-[100svh] w-full overflow-clip select-none bg-[var(--ink)]">
-        {/* 1. Plates */}
         <Backdrop index={index} dir={dir} plateUrls={plateUrls} />
 
-        {/* 2. Ambient mist + steam sweep between stops */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="mist mist--low" />
         </div>
         <SteamSweep index={index} dir={dir} enabled={hasMoved} />
 
-        {/* 3. Train */}
         <div className="absolute inset-0 z-30 pointer-events-none">
           <Canvas
-            dpr={[1, 1.75]}
+            dpr={[1, 1.5]}
             camera={{ position: [0, 0, 5], fov: 45 }}
-            gl={{ antialias: true, alpha: true, toneMappingExposure: 0.95, localClippingEnabled: true }}
+            gl={{ antialias: true, alpha: true, toneMappingExposure: 0.95, localClippingEnabled: true, powerPreference: "high-performance" }}
           >
             <ambientLight intensity={0.8} color="#e8d8c3" />
             <directionalLight position={[3, 5, 4]} intensity={2.6} color="#ffdf9e" />
@@ -510,37 +493,47 @@ export default function Timeline() {
             <pointLight position={[-2, -1, 2]} intensity={1.2} color="#d4af37" />
 
             <Suspense fallback={null}>
-              <TrainModel index={index} total={TOTAL} ready={ready} />
+              {isMobile ? (
+                <TrainModelVertical
+                  scrollProgress={scrollProgress}
+                  velocity={hasMoved ? 0.3 : 0}
+                  isTransitioning={!ready}
+                />
+              ) : (
+                <TrainModelHorizontal index={Math.min(index, TOTAL - 1)} total={TOTAL} ready={ready} />
+              )}
             </Suspense>
 
             <Environment preset="night" />
           </Canvas>
         </div>
 
-        {/* Film grain over everything but the type */}
         <div className="absolute inset-0 z-[35] overflow-hidden pointer-events-none">
           <div className="grain" />
         </div>
 
-        {/* 4. Interface */}
         <motion.div
           className="absolute inset-0 z-40"
           initial={{ opacity: 0 }}
           animate={{ opacity: ready ? 1 : 0 }}
           transition={{ duration: 1.2, delay: 0.6, ease: 'easeOut' }}
         >
-          {/* Wordmark */}
           <header className="absolute top-[var(--pad-y)] inset-x-[var(--pad-x)] flex items-center justify-between">
-            <div className="flex items-center gap-4 sm:gap-6">
+            <div className="flex items-center gap-3 sm:gap-5">
               <span className="font-display text-[18px] sm:text-[21px] tracking-[0.42em] text-[var(--ivory)]">TIMELINE</span>
-              <span className="hidden sm:block h-px w-12 bg-[var(--hair)]" />
+
+              {/*<img
+                src="/assets/arrow.png"
+                alt="Arrow Divider"
+                className="h-5 sm:h-6 w-auto object-contain filter drop-shadow-[0_0_12px_rgba(201,168,106,0.5)] opacity-90"
+              />*/}
+
               <span className="hidden sm:block eyebrow text-[var(--ivory-faint)]">Xtract 5.0</span>
             </div>
           </header>
 
           <Rail index={index} onSelect={go} />
 
-          {/* Stacked-layout progress */}
           <div className="lg:hidden absolute top-[calc(var(--pad-y)+2.25rem)] inset-x-[var(--pad-x)] flex gap-1">
             {stops.map((s, i) => (
               <button
@@ -561,12 +554,10 @@ export default function Timeline() {
             ))}
           </div>
 
-          {/* Copy column */}
           <section className="absolute inset-x-[var(--pad-x)] bottom-[calc(var(--pad-y)+3rem)] max-w-[36rem] lg:max-w-none lg:inset-x-auto lg:bottom-auto lg:right-[var(--pad-x)] lg:top-1/2 lg:-translate-y-1/2 lg:w-[min(30rem,34vw)]">
             <StopCopy index={index} />
           </section>
 
-          {/* Footer line */}
           <footer className="absolute bottom-[var(--pad-y)] inset-x-[var(--pad-x)] flex items-center gap-6">
             <span className="hidden md:block eyebrow text-[var(--ivory-faint)] whitespace-nowrap">A journey without return</span>
             <span className="hidden md:block h-px flex-1 bg-[var(--hair)]" />
