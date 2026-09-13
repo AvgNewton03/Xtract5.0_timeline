@@ -3,6 +3,11 @@ export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Michroma', 'sans-serif'],
+        display: ['Michroma', 'sans-serif'],
+        mono: ['Michroma', 'monospace'],
+      },
       colors: {
         gold: {
           300: "#ffdf85",

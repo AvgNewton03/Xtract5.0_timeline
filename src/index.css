@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Inter:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Michroma&display=swap');
 @import "tailwindcss";
 
 :root {
@@ -12,6 +12,7 @@
   --pad-x: clamp(1.5rem, 4.4vw, 4.5rem);
   --pad-y: clamp(1.25rem, 3.6vh, 2.75rem);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: 'Michroma', sans-serif;
 }
 
 html,
@@ -24,23 +25,23 @@ body {
   margin: 0;
   background: var(--ink);
   color: var(--ivory);
-  font-family: 'Inter', system-ui, sans-serif;
-  font-weight: 300;
+  font-family: 'Michroma', system-ui, sans-serif;
+  font-weight: 400;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 .font-display {
-  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  font-family: 'Michroma', sans-serif !important;
 }
 
-/* Small tracked caps used for every label on the page */
+/* Small tracked caps used for labels across the page */
 .eyebrow {
-  font-family: 'Inter', system-ui, sans-serif;
-  font-size: 10.5px;
+  font-family: 'Michroma', sans-serif !important;
+  font-size: 9.5px;
   font-weight: 400;
-  letter-spacing: 0.32em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
 }
 
@@ -57,11 +58,25 @@ body {
 }
 
 @keyframes grain {
-  0% { transform: translate(0, 0); }
-  25% { transform: translate(-3%, 2%); }
-  50% { transform: translate(2%, -3%); }
-  75% { transform: translate(-2%, -1%); }
-  100% { transform: translate(0, 0); }
+  0% {
+    transform: translate(0, 0);
+  }
+
+  25% {
+    transform: translate(-3%, 2%);
+  }
+
+  50% {
+    transform: translate(2%, -3%);
+  }
+
+  75% {
+    transform: translate(-2%, -1%);
+  }
+
+  100% {
+    transform: translate(0, 0);
+  }
 }
 
 .mist {
@@ -90,8 +105,13 @@ body {
 }
 
 @keyframes drift {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
 }
 
 /* ---------- Next-stop arrow: a small periodic nudge toward the next station ---------- */
@@ -101,11 +121,20 @@ body {
 }
 
 @keyframes nudge {
-  0%, 60%, 100% { transform: translateX(0); }
-  75% { transform: translateX(3px); }
+
+  0%,
+  60%,
+  100% {
+    transform: translateX(0);
+  }
+
+  75% {
+    transform: translateX(3px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .grain,
   .mist,
   .nudge {
