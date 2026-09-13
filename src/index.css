@@ -1,18 +1,119 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=Inter:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Inter:wght@300;400;500&display=swap');
 @import "tailwindcss";
+
+:root {
+  --ink: #07080a;
+  --ivory: #ece6da;
+  --ivory-dim: rgba(236, 230, 218, 0.62);
+  --ivory-faint: rgba(236, 230, 218, 0.38);
+  --hair: rgba(236, 230, 218, 0.14);
+  --gold: #c9a86a;
+  --gold-soft: rgba(201, 168, 106, 0.55);
+  --pad-x: clamp(1.5rem, 4.4vw, 4.5rem);
+  --pad-y: clamp(1.25rem, 3.6vh, 2.75rem);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
 
 body {
   margin: 0;
-  padding: 0;
-  background-color: #000000;
-  color: #d1c7b7;
-  font-family: 'Inter', sans-serif;
-  overflow-x: hidden;
+  background: var(--ink);
+  color: var(--ivory);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 300;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-h1,
-h2,
-h3,
-.heading-font {
-  font-family: 'Cinzel', serif;
+.font-display {
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+}
+
+/* Small tracked caps used for every label on the page */
+.eyebrow {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+/* ---------- Atmosphere ---------- */
+
+.grain {
+  position: absolute;
+  inset: -50%;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  animation: grain 1.2s steps(4) infinite;
+}
+
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-3%, 2%); }
+  50% { transform: translate(2%, -3%); }
+  75% { transform: translate(-2%, -1%); }
+  100% { transform: translate(0, 0); }
+}
+
+.mist {
+  position: absolute;
+  left: -50%;
+  width: 200%;
+  pointer-events: none;
+  filter: blur(40px);
+  will-change: transform;
+}
+
+.mist--low {
+  bottom: -8%;
+  height: 42%;
+  background: radial-gradient(ellipse 30% 55% at 25% 70%, rgba(120, 104, 82, 0.28), transparent 70%),
+    radial-gradient(ellipse 26% 50% at 75% 75%, rgba(120, 104, 82, 0.22), transparent 70%);
+  animation: drift 46s linear infinite;
+}
+
+.mist--high {
+  top: 22%;
+  height: 36%;
+  background: radial-gradient(ellipse 22% 40% at 30% 50%, rgba(90, 84, 76, 0.18), transparent 70%),
+    radial-gradient(ellipse 28% 45% at 80% 45%, rgba(90, 84, 76, 0.14), transparent 70%);
+  animation: drift 70s linear infinite reverse;
+}
+
+@keyframes drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* ---------- Next-stop arrow: a small periodic nudge toward the next station ---------- */
+
+.nudge {
+  animation: nudge 2.8s var(--ease-out) infinite;
+}
+
+@keyframes nudge {
+  0%, 60%, 100% { transform: translateX(0); }
+  75% { transform: translateX(3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grain,
+  .mist,
+  .nudge {
+    animation: none;
+  }
+}
+
+button:focus-visible {
+  outline: 1px solid var(--gold);
+  outline-offset: 4px;
 }

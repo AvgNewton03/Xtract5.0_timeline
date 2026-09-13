@@ -1,302 +1,508 @@
-import React, { useRef, useState, useEffect, Suspense } from 'react';
-import { motion, AnimatePresence, useScroll, useSpring, useVelocity } from 'framer-motion';
+import { useRef, useState, useEffect, useCallback, Suspense } from 'react';
+import { motion, AnimatePresence, MotionConfig } from 'framer-motion';
 import { Canvas } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
+import { Environment, useProgress } from '@react-three/drei';
 import TrainModel from './TrainModel';
+import { preparePlate } from './plates';
 
-const districtData = [
+// Per-plate grade, baked in by preparePlate: a touch of contrast for clarity,
+// lift for the darkest plate, and a gentler exposure for the daylight Capitol.
+// `shade` is how strongly the scrim behind the copy darkens that plate (brighter plates need more).
+const plates = {
+  '/assets/District1Bg.jpeg': { exposure: 1.2, contrast: 1.1, saturation: 1.05, shade: 0.5 },
+  '/assets/District2Bg.png': { exposure: 1.0, contrast: 1.08, saturation: 1.0, shade: 0.7 },
+  '/assets/District3Bg.jpg': { exposure: 1.0, contrast: 1.08, saturation: 1.0, shade: 0.7 },
+  '/assets/District4Bg.jpg': { exposure: 1.02, contrast: 1.08, saturation: 0.96, shade: 0.85 },
+  '/assets/District5Bg.png': { exposure: 1.0, contrast: 1.06, saturation: 1.0, shade: 0.9 },
+  '/assets/CapitolBg.jpg': { exposure: 0.76, contrast: 1.06, saturation: 0.92, shade: 1 },
+};
+
+// Real stops use the copy transcribed from the Text1–6 cards.
+const stops = [
   {
-    id: 1,
-    bg: '/assets/District1Bg.jpeg',
-    districtSeal: '/assets/District1.png',
-    textCard: '/assets/Text1.png',
-    title: 'The Reaping',
+    id: 'd13',
     district: 'District 13',
+    bg: '/assets/District1Bg.jpeg',
+    seal: '/assets/District1.png',
+    tint: '#cfcfcf',
+    title: ['The', 'Reaping'],
+    body: 'Your name has been drawn. The train leaves the station soon. Register before the Capitol claims your seat. Once you board, there’s no turning back.',
   },
   {
-    id: 2,
-    bg: '/assets/District2Bg.png',
-    districtSeal: '/assets/District2.png',
-    textCard: '/assets/Text2.png',
-    title: 'The Announcement',
+    id: 'd12',
     district: 'District 12',
+    bg: '/assets/District2Bg.png',
+    seal: '/assets/District2.png',
+    tint: '#5fd0bf',
+    title: ['The', 'Announcement'],
+    body: 'The names have been read aloud in every District. Your team has been reaped. Check the list — are you standing among the chosen?',
   },
   {
-    id: 3,
-    bg: '/assets/District3Bg.jpg',
-    districtSeal: '/assets/District3.png',
-    textCard: '/assets/Text3.png',
-    title: 'The Arrival',
+    id: 'd9',
     district: 'District 9',
+    bg: '/assets/District3Bg.jpg',
+    seal: '/assets/District3.png',
+    tint: '#b4c0a2',
+    title: ['The', 'Arrival'],
+    body: 'The train pulls into the Capitol. Bring your tools (laptops), your team, and whatever courage you have left. Final briefing before the gates open.',
   },
   {
-    id: 4,
-    bg: '/assets/District4Bg.jpg',
-    districtSeal: '/assets/District4.png',
-    textCard: '/assets/Text4.png',
-    title: 'The Games Begin',
+    id: 'd8',
     district: 'District 8',
+    bg: '/assets/District4Bg.jpg',
+    seal: '/assets/District4.png',
+    tint: '#c28d44',
+    title: ['The Games', 'Begin'],
+    body: 'The gong has sounded. The arena is yours — solve the clues, outlast the field, outwit the Gamemakers. May the odds be ever in your favor.',
   },
   {
-    id: 5,
-    bg: '/assets/District5Bg.png',
-    districtSeal: '/assets/District5.png',
-    textCard: '/assets/Text5.png',
-    title: 'The Cannon Fires',
+    id: 'd1',
     district: 'District 1',
+    bg: '/assets/District5Bg.png',
+    seal: '/assets/District5.png',
+    tint: '#b3ae5e',
+    title: ['The Cannon', 'Fires'],
+    body: 'The arena falls silent. Time’s up — pencils down, tools away. The Gamemakers are now tallying who truly survived.',
   },
   {
-    id: 6,
-    bg: '/assets/CapitolBg.jpg',
-    districtSeal: '/assets/Capitol.png',
-    textCard: '/assets/Text6.png',
-    title: 'The Victors Crown',
+    id: 'capitol',
     district: 'The Capitol',
+    bg: '/assets/CapitolBg.jpg',
+    seal: '/assets/Capitol.png',
+    tint: '#d9c9a3',
+    title: ['The Victor’s', 'Crown'],
+    body: 'The Capitol has decided. One tribute rises above the rest and is crowned Victor. Step forward and claim what’s yours.',
   },
 ];
 
-// ================= CONTINUOUS AMBIENT BACKGROUND FOG (Z-15) =================
-function AmbientBackgroundFog({ velocity = 0 }) {
-  const dynamicBoost = Math.min(Math.abs(velocity) * 8, 1.5);
+const TOTAL = stops.length;
+const TRANSITION_MS = 950;
+const EASE = [0.16, 1, 0.3, 1];
+const pad = (n) => String(n).padStart(2, '0');
 
+// ================= PRELOADER =================
+function Preloader({ progress, visible }) {
   return (
-    <div className="absolute inset-0 z-15 pointer-events-none overflow-hidden select-none">
-      {/* SVG Turbulence Filter for Natural Cloud Edges */}
-      <svg className="w-0 h-0 absolute pointer-events-none">
-        <defs>
-          <filter id="ambient-fog-filter" x="-20%" y="-20%" width="140%" height="140%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="3" seed="42" />
-            <feDisplacementMap in="SourceGraphic" scale="45" xChannelSelector="R" yChannelSelector="G" />
-          </filter>
-        </defs>
-      </svg>
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          key="preloader"
+          className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-[var(--ink)]"
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.9, ease: EASE }}
+        >
+          <p className="font-display text-[22px] tracking-[0.5em] pl-[0.5em] text-[var(--ivory)]">TIMELINE</p>
+          <div className="mt-7 h-px w-44 bg-[var(--hair)] overflow-hidden">
+            <motion.div
+              className="h-full bg-[var(--gold)] origin-left"
+              animate={{ scaleX: progress / 100 }}
+              transition={{ duration: 0.4, ease: 'easeOut' }}
+            />
+          </div>
+          <p className="eyebrow mt-4 text-[var(--ivory-faint)] tabular-nums">{pad(Math.round(progress))} / 100</p>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
-      {/* 1. Low Creeping Horizon Mist (Drifting Right to Left) */}
-      <motion.div
-        animate={{ x: ['0%', '-50%'] }}
-        transition={{
-          duration: 38 / (1 + dynamicBoost * 0.8),
-          repeat: Infinity,
-          ease: 'linear',
-        }}
-        style={{ filter: 'url(#ambient-fog-filter) blur(20px)' }}
-        className="absolute bottom-0 inset-x-0 w-[200vw] h-[55%] flex items-end opacity-40"
-      >
-        <div className="w-1/2 h-full bg-gradient-to-t from-[#2c261e]/85 via-[#4a3f30]/40 to-transparent rounded-full scale-y-125" />
-        <div className="w-1/2 h-full bg-gradient-to-t from-[#2c261e]/85 via-[#4a3f30]/40 to-transparent rounded-full scale-y-125" />
-      </motion.div>
+// ================= BACKGROUND PLATES =================
+// Settles at exactly 1:1 so the plate is pixel-crisp at rest; it only moves mid-fade.
+// The outgoing plate is swept back past the train with a touch of motion blur; the next one
+// slides in from ahead. Overscale always exceeds the shift, so edges never show.
+const bgVariants = {
+  enter: (dir) => ({ opacity: 0, scale: 1.12, x: `${dir * 5}%`, filter: 'blur(6px)' }),
+  center: { opacity: 1, scale: 1, x: '0%', filter: 'blur(0px)' },
+  exit: (dir) => ({ opacity: 0, scale: 1.08, x: `${dir * -4}%`, filter: 'blur(6px)' }),
+};
 
-      {/* 2. Midground Rolling Atmospheric Clouds (Drifting Left to Right) */}
-      <motion.div
-        animate={{ x: ['-50%', '0%'] }}
-        transition={{
-          duration: 48 / (1 + dynamicBoost * 0.8),
-          repeat: Infinity,
-          ease: 'linear',
-        }}
-        style={{ filter: 'url(#ambient-fog-filter) blur(26px)' }}
-        className="absolute top-1/4 inset-x-0 w-[200vw] h-[50%] flex items-center opacity-30"
-      >
-        <div className="w-1/2 h-3/4 bg-gradient-to-r from-transparent via-[#3b3327]/60 to-transparent rounded-full scale-125" />
-        <div className="w-1/2 h-3/4 bg-gradient-to-r from-transparent via-[#3b3327]/60 to-transparent rounded-full scale-125" />
-      </motion.div>
+function Backdrop({ index, dir, plateUrls }) {
+  const stop = stops[index];
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      <AnimatePresence initial={false} custom={dir}>
+        <motion.div
+          key={stop.id}
+          custom={dir}
+          variants={bgVariants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={{ duration: 1.6, ease: EASE, opacity: { duration: 1.1, ease: 'easeInOut' } }}
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: `url('${plateUrls[stop.bg] ?? stop.bg}')` }}
+        />
+      </AnimatePresence>
 
-      {/* 3. Golden Amber Haze Currents (Catching District Ambient Lights) */}
+      {/* Shade only where type sits; the plate itself stays clean */}
+      <div className="absolute inset-0 hidden lg:block bg-[linear-gradient(90deg,rgba(7,8,10,0.25)_0%,rgba(7,8,10,0)_14%,rgba(7,8,10,0)_60%,rgba(7,8,10,0.6)_82%,rgba(7,8,10,0.76)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,8,10,0.55)_0%,rgba(7,8,10,0)_15%,rgba(7,8,10,0)_72%,rgba(7,8,10,0.6)_100%)]" />
+      {/* Stacked layouts: copy sits low, so shade from the middle down */}
+      <div className="absolute inset-0 lg:hidden bg-[linear-gradient(180deg,rgba(7,8,10,0)_38%,rgba(7,8,10,0.86)_68%,rgba(7,8,10,0.96)_100%)]" />
+      {/* Local scrim behind the copy — stronger on bright plates so the type always reads */}
       <motion.div
-        animate={{
-          x: ['-25%', '15%', '-25%'],
-          opacity: [0.18, 0.32, 0.18],
-        }}
-        transition={{
-          duration: 22,
-          repeat: Infinity,
-          ease: 'easeInOut',
-        }}
-        className="absolute bottom-12 inset-x-0 w-[150vw] h-[45%] bg-[radial-gradient(ellipse_at_45%_70%,rgba(214,178,101,0.22)_0%,transparent_70%)] blur-3xl"
+        className="absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_100%,rgba(7,8,10,0.85),rgba(7,8,10,0.5)_50%,transparent_80%)] lg:bg-[radial-gradient(ellipse_40%_60%_at_79%_52%,rgba(7,8,10,0.8),rgba(7,8,10,0.5)_50%,transparent_80%)]"
+        initial={false}
+        animate={{ opacity: plates[stop.bg].shade }}
+        transition={{ duration: 1.1, ease: 'easeInOut' }}
       />
     </div>
   );
 }
 
-// ================= REALISTIC CLOUD & STEAM TRANSITION (Z-25) =================
-function RealisticFogCurtain({ isVisible }) {
+// ================= STEAM SWEEP (between stops) =================
+function SteamSweep({ index, dir, enabled }) {
   return (
-    <>
-      <svg className="w-0 h-0 absolute pointer-events-none">
-        <defs>
-          <filter id="realistic-cloud-filter" x="-20%" y="-20%" width="140%" height="140%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="4" seed="23" result="noise" />
-            <feDisplacementMap in="SourceGraphic" in2="noise" scale="65" xChannelSelector="R" yChannelSelector="G" />
-          </filter>
-        </defs>
-      </svg>
-
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
       <AnimatePresence>
-        {isVisible && (
+        {enabled && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.25 }}
-            className="absolute top-20 sm:top-24 inset-x-0 bottom-0 z-25 overflow-hidden pointer-events-none"
-          >
-            {/* Base Atmosphere Bleed with 10-15% transparency */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: [0, 0.86, 0.86, 0] }}
-              transition={{ duration: 0.95, times: [0, 0.4, 0.65, 1.0], ease: 'easeInOut' }}
-              className="absolute inset-0 bg-gradient-to-r from-[#141210]/85 via-[#29231c]/80 to-[#141210]/85 backdrop-blur-md"
-            />
-
-            {/* Left Billowing Steam Wave */}
-            <motion.div
-              initial={{ x: '-110%', opacity: 0 }}
-              animate={{
-                x: ['-110%', '0%', '0%', '-115%'],
-                opacity: [0, 0.9, 0.9, 0],
-              }}
-              transition={{ duration: 0.95, times: [0, 0.38, 0.65, 1.0], ease: [0.22, 1, 0.36, 1] }}
-              style={{ filter: 'url(#realistic-cloud-filter) blur(16px)' }}
-              className="absolute inset-y-0 -left-16 w-[90vw] flex flex-col justify-around pointer-events-none"
-            >
-              <div className="w-full h-[45%] bg-gradient-to-r from-[#241f1a] via-[#453c30] to-transparent opacity-80 rounded-full scale-125" />
-              <div className="w-[95%] h-[50%] bg-gradient-to-r from-[#322b22] via-[#544837] to-transparent opacity-85 rounded-full scale-150" />
-              <div className="w-full h-[40%] bg-gradient-to-r from-[#1d1915] via-[#3a3127] to-transparent opacity-75 rounded-full scale-125" />
-            </motion.div>
-
-            {/* Right Billowing Steam Wave */}
-            <motion.div
-              initial={{ x: '110%', opacity: 0 }}
-              animate={{
-                x: ['110%', '0%', '0%', '115%'],
-                opacity: [0, 0.9, 0.9, 0],
-              }}
-              transition={{ duration: 0.95, times: [0, 0.38, 0.65, 1.0], ease: [0.22, 1, 0.36, 1] }}
-              style={{ filter: 'url(#realistic-cloud-filter) blur(16px)' }}
-              className="absolute inset-y-0 -right-16 w-[90vw] flex flex-col justify-around pointer-events-none"
-            >
-              <div className="w-full h-[45%] bg-gradient-to-l from-[#241f1a] via-[#453c30] to-transparent opacity-80 rounded-full scale-125" />
-              <div className="w-[95%] h-[50%] bg-gradient-to-l from-[#322b22] via-[#544837] to-transparent opacity-85 rounded-full scale-150" />
-              <div className="w-full h-[40%] bg-gradient-to-l from-[#1d1915] via-[#3a3127] to-transparent opacity-75 rounded-full scale-125" />
-            </motion.div>
-
-            {/* Atmospheric Speed Wind Streaks */}
-            <motion.div
-              initial={{ opacity: 0, x: '80%' }}
-              animate={{ opacity: [0, 0.65, 0], x: ['80%', '-40%', '-120%'] }}
-              transition={{ duration: 0.85, ease: 'easeOut' }}
-              className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-200/10 to-transparent blur-md"
-            />
-          </motion.div>
+            key={index}
+            initial={{ x: `${dir * -70}%`, opacity: 0 }}
+            animate={{ x: `${dir * 70}%`, opacity: [0, 0.8, 0] }}
+            transition={{ duration: 1.5, ease: [0.45, 0, 0.2, 1] }}
+            className="absolute inset-y-[18%] -inset-x-[20%]"
+            style={{
+              background:
+                'radial-gradient(ellipse 38% 42% at 50% 62%, rgba(150,132,106,0.4), transparent 70%), radial-gradient(ellipse 22% 26% at 38% 70%, rgba(214,190,150,0.2), transparent 70%)',
+              filter: 'blur(36px)',
+            }}
+          />
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }
 
-export default function Timeline() {
-  const containerRef = useRef(null);
-  const [scrollVal, setScrollVal] = useState(0);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [isFogActive, setIsFogActive] = useState(false);
-  const [currentVelocity, setCurrentVelocity] = useState(0);
-
-  const activeIndexRef = useRef(0);
-  const fogTimeoutRef = useRef(null);
-
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ['start start', 'end end'],
-  });
-
-  const smoothScroll = useSpring(scrollYProgress, {
-    stiffness: 90,
-    damping: 26,
-    restDelta: 0.001,
-  });
-
-  const scrollVelocity = useVelocity(smoothScroll);
-
-  useEffect(() => {
-    const unsubScroll = smoothScroll.on('change', (latest) => {
-      setScrollVal(latest);
-
-      // Distribute equally across all 6 districts between 0.10 and 0.84
-      const targetIdx =
-        latest < 0.10
-          ? 0
-          : latest >= 0.84
-            ? districtData.length - 1
-            : Math.min(
-              Math.floor(((latest - 0.10) / 0.74) * districtData.length),
-              districtData.length - 1
-            );
-
-      if (targetIdx !== activeIndexRef.current) {
-        activeIndexRef.current = targetIdx;
-        setActiveIndex(targetIdx);
-
-        setIsFogActive(true);
-        if (fogTimeoutRef.current) clearTimeout(fogTimeoutRef.current);
-        fogTimeoutRef.current = setTimeout(() => {
-          setIsFogActive(false);
-        }, 950);
-      }
-    });
-
-    const unsubVelocity = scrollVelocity.on('change', (latestVel) => {
-      setCurrentVelocity(latestVel);
-    });
-
-    return () => {
-      unsubScroll();
-      unsubVelocity();
-      if (fogTimeoutRef.current) clearTimeout(fogTimeoutRef.current);
-    };
-  }, [smoothScroll, scrollVelocity]);
-
-  // UI visible from docking through start of departure sequence (0.10 to 0.85)
-  const showDistrictUI = scrollVal >= 0.10 && scrollVal < 0.85;
-
+// ================= SEAL =================
+function Seal({ stop }) {
   return (
-    <section ref={containerRef} className="relative w-full h-[900vh] bg-black">
+    <img
+      src={stop.seal}
+      alt={`${stop.district} seal`}
+      className="h-16 sm:h-[72px] lg:h-[clamp(84px,6.4vw,108px)] w-auto object-contain"
+      style={{ filter: `drop-shadow(0 0 32px ${stop.tint}59) drop-shadow(0 10px 24px rgba(0,0,0,0.7))` }}
+    />
+  );
+}
 
-      {/* Pinned Viewport Container */}
-      <div className="sticky top-0 h-screen w-full overflow-hidden select-none bg-black">
+// ================= LEFT RAIL =================
+function Rail({ index, onSelect }) {
+  return (
+    <nav
+      aria-label="Timeline stops"
+      className="absolute z-40 hidden lg:block w-16 left-[var(--pad-x)] top-1/2 -translate-y-1/2 h-[min(46vh,380px)]"
+    >
+      <div className="absolute left-[4px] -top-8 -bottom-8 w-px bg-[var(--hair)]" />
+      <motion.div
+        className="absolute left-[4px] inset-y-0 w-px bg-[var(--gold-soft)] origin-top"
+        animate={{ scaleY: index / (TOTAL - 1) }}
+        transition={{ duration: 1.1, ease: EASE }}
+      />
+      {stops.map((s, i) => {
+        const active = i === index;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onSelect(i)}
+            aria-label={`${pad(i + 1)} — ${s.district}: ${s.title.join(' ')}`}
+            aria-current={active ? 'step' : undefined}
+            className="group absolute left-0 flex items-center gap-5 -translate-y-1/2 cursor-pointer py-1"
+            style={{ top: `${(i / (TOTAL - 1)) * 100}%` }}
+          >
+            <span className="grid place-items-center w-[9px] h-[9px]">
+              <motion.span
+                className="block rounded-full"
+                animate={{
+                  width: active ? 9 : 5,
+                  height: active ? 9 : 5,
+                  backgroundColor: active ? '#ece6da' : i < index ? '#c9a86a' : 'rgba(236,230,218,0.35)',
+                  boxShadow: active
+                    ? '0 0 0 5px rgba(236,230,218,0.08), 0 0 18px rgba(236,230,218,0.55)'
+                    : '0 0 0 0 rgba(0,0,0,0)',
+                }}
+                transition={{ duration: 0.6, ease: EASE }}
+              />
+            </span>
+            <span
+              className={`eyebrow tabular-nums transition-all duration-500 ${
+                active
+                  ? 'text-[var(--ivory)]'
+                  : 'text-[var(--ivory-faint)] group-hover:text-[var(--ivory-dim)] [@media(max-height:760px)]:opacity-0 group-hover:opacity-100'
+              }`}
+              style={{ letterSpacing: '0.2em' }}
+            >
+              {pad(i + 1)}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
 
-        {/* ================= 1. MULTI-LAYER PRELOADED BACKGROUNDS (Z-0) ================= */}
-        <div className="absolute inset-0 pointer-events-none">
-          {districtData.map((item, idx) => (
-            <motion.div
-              key={item.id}
-              initial={false}
-              animate={{
-                opacity: activeIndex === idx ? 1 : 0,
-                scale: activeIndex === idx ? 1 : 1.035,
-              }}
-              transition={{ duration: 0.75, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-              style={{ backgroundImage: `url('${item.bg}')` }}
-            />
-          ))}
+// ================= STOP COPY =================
+const lineReveal = {
+  hidden: { y: '105%' },
+  show: (i) => ({ y: '0%', transition: { duration: 0.95, ease: EASE, delay: 0.18 + i * 0.07 } }),
+};
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 14 },
+  show: (i) => ({ opacity: 1, y: 0, transition: { duration: 0.85, ease: EASE, delay: 0.26 + i * 0.07 } }),
+};
+
+const sealIn = {
+  hidden: { opacity: 0, scale: 0.82, rotate: -8, filter: 'blur(6px)' },
+  show: { opacity: 1, scale: 1, rotate: 0, filter: 'blur(0px)', transition: { duration: 1.1, ease: EASE, delay: 0.1 } },
+};
+
+function StopCopy({ index }) {
+  const stop = stops[index];
+  return (
+    <AnimatePresence mode="wait">
+      <motion.article
+        key={stop.id}
+        initial="hidden"
+        animate="show"
+        exit={{ opacity: 0, y: -6, transition: { duration: 0.22, ease: 'easeIn' } }}
+        className="w-full"
+        aria-live="polite"
+      >
+        {/* Identity row: seal | district + stop counter */}
+        <div className="flex items-center gap-5 lg:gap-6">
+          <motion.div variants={sealIn} className="shrink-0">
+            <Seal stop={stop} />
+          </motion.div>
+          <motion.span custom={0} variants={fadeUp} className="self-stretch my-3 w-px bg-[var(--hair)]" />
+          <motion.div custom={0} variants={fadeUp} className="min-w-0 flex-1">
+            <p className="eyebrow text-[var(--gold)]">{stop.district}</p>
+            <div className="mt-3 flex items-center gap-4">
+              <span className="eyebrow tabular-nums text-[var(--ivory-faint)]" style={{ letterSpacing: '0.2em' }}>
+                <span className="text-[var(--ivory)]">{pad(index + 1)}</span> / {pad(TOTAL)}
+              </span>
+              <span className="h-px flex-1 bg-[var(--hair)]" />
+            </div>
+          </motion.div>
         </div>
 
-        {/* Ambient Film Vignettes (Z-10) */}
-        <div className="absolute inset-0 bg-black/40 pointer-events-none z-10" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/75 pointer-events-none z-10" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_65%,rgba(214,178,101,0.14),transparent_65%)] pointer-events-none z-10" />
+        <h1 className="font-display mt-6 lg:mt-9 font-light uppercase text-[var(--ivory)] leading-[0.98] tracking-[0.04em] [text-shadow:0_2px_24px_rgba(0,0,0,0.45)] text-[clamp(2rem,8.4vw,3.2rem)] lg:text-[clamp(2.4rem,3.4vw,3.9rem)] [@media(max-height:520px)]:text-[1.8rem]">
+          {stop.title.map((line, i) => (
+            <span key={line} className="block overflow-hidden pb-[0.06em]">
+              <motion.span custom={i} variants={lineReveal} className="block">
+                {line}
+              </motion.span>
+            </span>
+          ))}
+        </h1>
 
-        {/* ================= 2. FLOWING AMBIENT BACKGROUND FOG (Z-15) ================= */}
-        <AmbientBackgroundFog velocity={currentVelocity} />
+        <motion.span custom={1} variants={fadeUp} className="block mt-5 lg:mt-7 h-px w-10 bg-[var(--gold-soft)]" />
 
-        {/* ================= 3. REALISTIC FOG CURTAIN (Z-25, BEHIND TRAIN) ================= */}
-        <RealisticFogCurtain isVisible={isFogActive} />
+        <motion.p
+          custom={2}
+          variants={fadeUp}
+          className="mt-5 lg:mt-6 text-[14px] sm:text-[14.5px] leading-[1.75] tracking-[0.015em] text-[rgba(236,230,218,0.82)] [text-shadow:0_1px_14px_rgba(0,0,0,0.6)] max-w-[26rem] [@media(max-height:520px)]:hidden"
+        >
+          {stop.body}
+        </motion.p>
+      </motion.article>
+    </AnimatePresence>
+  );
+}
 
-        {/* ================= 4. 3D TRAIN CANVAS (Z-30) ================= */}
+// ================= NEXT STOP =================
+function NextStop({ index, onGo }) {
+  const next = stops[index + 1];
+  return (
+    <button
+      type="button"
+      onClick={() => onGo(next ? index + 1 : 0)}
+      aria-label={next ? `Next stop: ${next.district}, ${next.title.join(' ')}` : 'Return to the first stop'}
+      className="group ml-auto md:ml-0 flex items-center gap-4 sm:gap-5 min-w-0 cursor-pointer"
+    >
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={index}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE, delay: 0.5 } }}
+          exit={{ opacity: 0, y: -8, transition: { duration: 0.3, ease: 'easeIn' } }}
+          className="flex min-w-0 flex-col items-end text-right"
+        >
+          <span className="eyebrow text-[9.5px] text-[var(--ivory-faint)] tabular-nums">
+            {next ? `Next stop · ${pad(index + 2)}` : 'End of the line'}
+          </span>
+          <span className="mt-2 max-w-full truncate font-display text-[17px] sm:text-[19px] leading-none tracking-[0.02em] text-[var(--ivory)] transition-colors duration-500 group-hover:text-white">
+            {next ? (
+              <>
+                {next.district}
+                <span className="hidden sm:inline">
+                  <span className="mx-2 text-[var(--ivory-faint)]">—</span>
+                  <span className="italic text-[var(--ivory-dim)]">{next.title.join(' ')}</span>
+                </span>
+              </>
+            ) : (
+              <>Back to {stops[0].district}</>
+            )}
+          </span>
+        </motion.span>
+      </AnimatePresence>
+      <span className="grid shrink-0 place-items-center w-10 h-10 sm:w-11 sm:h-11 rounded-full border border-[var(--hair)] text-[var(--ivory-dim)] transition-colors duration-500 group-hover:border-[var(--gold-soft)] group-hover:text-[var(--gold)]">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          aria-hidden="true"
+          className={next ? 'nudge' : 'rotate-180'}
+        >
+          <path d="M4 12h15M13 6l6 6-6 6" />
+        </svg>
+      </span>
+    </button>
+  );
+}
+
+// ================= MAIN =================
+export default function Timeline() {
+  const [index, setIndex] = useState(0);
+  const [dir, setDir] = useState(1);
+  const [ready, setReady] = useState(false);
+  const [hasMoved, setHasMoved] = useState(false);
+  const [plateUrls, setPlateUrls] = useState({});
+  const [platesReady, setPlatesReady] = useState(false);
+  const { progress, active } = useProgress();
+
+  const indexRef = useRef(0);
+  const lockUntil = useRef(0);
+  const wheelAcc = useRef(0);
+  const lastWheel = useRef(0);
+  const touchY = useRef(null);
+
+  // Model loaded and plates prepared → lift the curtain
+  useEffect(() => {
+    if (progress >= 100 && !active && platesReady) {
+      const id = setTimeout(() => setReady(true), 350);
+      return () => clearTimeout(id);
+    }
+  }, [progress, active, platesReady]);
+
+  // Prepare each unique plate once (resample + sharpen + grade) behind the preloader.
+  // A plate that fails to process simply falls back to the original file.
+  useEffect(() => {
+    let cancelled = false;
+    const made = [];
+    (async () => {
+      for (const url of new Set(stops.map((s) => s.bg))) {
+        try {
+          const out = await preparePlate(url, plates[url]);
+          if (cancelled) {
+            URL.revokeObjectURL(out);
+            break;
+          }
+          made.push(out);
+          setPlateUrls((prev) => ({ ...prev, [url]: out }));
+        } catch {
+          // keep the original url
+        }
+        await new Promise((r) => setTimeout(r, 0)); // let the preloader breathe
+      }
+      if (!cancelled) setPlatesReady(true);
+    })();
+    stops.forEach((s) => {
+      if (s.seal) new Image().src = s.seal;
+    });
+    return () => {
+      cancelled = true;
+      made.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, []);
+
+  const go = useCallback(
+    (next) => {
+      const now = performance.now();
+      if (!ready || next < 0 || next >= TOTAL || next === indexRef.current || now < lockUntil.current) return;
+      lockUntil.current = now + TRANSITION_MS;
+      setDir(next > indexRef.current ? 1 : -1);
+      setHasMoved(true);
+      indexRef.current = next;
+      setIndex(next);
+    },
+    [ready]
+  );
+
+  // Wheel, keyboard and touch all step one stop at a time
+  useEffect(() => {
+    const onWheel = (e) => {
+      e.preventDefault();
+      const now = performance.now();
+      // Swallow trackpad inertia: keep the lock alive while the gesture is still streaming
+      if (now < lockUntil.current) {
+        lockUntil.current = Math.max(lockUntil.current, now + 160);
+        wheelAcc.current = 0;
+        return;
+      }
+      // Stale micro-deltas from an earlier gesture shouldn't add up to a surprise jump
+      if (now - lastWheel.current > 220) wheelAcc.current = 0;
+      lastWheel.current = now;
+      wheelAcc.current += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; // Firefox reports lines
+      if (Math.abs(wheelAcc.current) > 50) {
+        go(indexRef.current + Math.sign(wheelAcc.current));
+        wheelAcc.current = 0;
+      }
+    };
+    const onKey = (e) => {
+      if (['ArrowDown', 'ArrowRight', 'PageDown', ' '].includes(e.key)) {
+        e.preventDefault();
+        go(indexRef.current + 1);
+      } else if (['ArrowUp', 'ArrowLeft', 'PageUp'].includes(e.key)) {
+        e.preventDefault();
+        go(indexRef.current - 1);
+      } else if (e.key === 'Home') go(0);
+      else if (e.key === 'End') go(TOTAL - 1);
+    };
+    const onTouchStart = (e) => {
+      touchY.current = e.touches[0].clientY;
+    };
+    const onTouchEnd = (e) => {
+      if (touchY.current === null) return;
+      const dy = touchY.current - e.changedTouches[0].clientY;
+      if (Math.abs(dy) > 48) go(indexRef.current + Math.sign(dy));
+      touchY.current = null;
+    };
+
+    window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [go]);
+
+  return (
+    <MotionConfig reducedMotion="user">
+      <main className="relative h-[100svh] w-full overflow-clip select-none bg-[var(--ink)]">
+        {/* 1. Plates */}
+        <Backdrop index={index} dir={dir} plateUrls={plateUrls} />
+
+        {/* 2. Ambient mist + steam sweep between stops */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="mist mist--low" />
+        </div>
+        <SteamSweep index={index} dir={dir} enabled={hasMoved} />
+
+        {/* 3. Train */}
         <div className="absolute inset-0 z-30 pointer-events-none">
           <Canvas
+            dpr={[1, 1.75]}
             camera={{ position: [0, 0, 5], fov: 45 }}
-            gl={{ antialias: true, alpha: true, toneMappingExposure: 0.95 }}
+            gl={{ antialias: true, alpha: true, toneMappingExposure: 0.95, localClippingEnabled: true }}
           >
             <ambientLight intensity={0.8} color="#e8d8c3" />
             <directionalLight position={[3, 5, 4]} intensity={2.6} color="#ffdf9e" />
@@ -304,55 +510,72 @@ export default function Timeline() {
             <pointLight position={[-2, -1, 2]} intensity={1.2} color="#d4af37" />
 
             <Suspense fallback={null}>
-              <TrainModel
-                scrollProgress={scrollVal}
-                velocity={currentVelocity}
-                isTransitioning={isFogActive}
-              />
+              <TrainModel index={index} total={TOTAL} ready={ready} />
             </Suspense>
 
             <Environment preset="night" />
           </Canvas>
         </div>
 
-        {/* ================= 5. DISTRICT BADGE & TEXT CARD LOCKUP (Z-40) ================= */}
-        <div className="absolute bottom-16 sm:bottom-20 md:bottom-24 right-4 sm:right-8 md:right-12 z-40 flex flex-col items-center pointer-events-none">
-          <AnimatePresence mode="wait">
-            {showDistrictUI && (
-              <motion.div
-                key={districtData[activeIndex].id}
-                initial={{ opacity: 0, y: 16, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -16, scale: 0.97 }}
-                transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-                className="flex flex-col items-center pointer-events-auto"
+        {/* Film grain over everything but the type */}
+        <div className="absolute inset-0 z-[35] overflow-hidden pointer-events-none">
+          <div className="grain" />
+        </div>
+
+        {/* 4. Interface */}
+        <motion.div
+          className="absolute inset-0 z-40"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: ready ? 1 : 0 }}
+          transition={{ duration: 1.2, delay: 0.6, ease: 'easeOut' }}
+        >
+          {/* Wordmark */}
+          <header className="absolute top-[var(--pad-y)] inset-x-[var(--pad-x)] flex items-center justify-between">
+            <div className="flex items-center gap-4 sm:gap-6">
+              <span className="font-display text-[18px] sm:text-[21px] tracking-[0.42em] text-[var(--ivory)]">TIMELINE</span>
+              <span className="hidden sm:block h-px w-12 bg-[var(--hair)]" />
+              <span className="hidden sm:block eyebrow text-[var(--ivory-faint)]">Xtract 5.0</span>
+            </div>
+          </header>
+
+          <Rail index={index} onSelect={go} />
+
+          {/* Stacked-layout progress */}
+          <div className="lg:hidden absolute top-[calc(var(--pad-y)+2.25rem)] inset-x-[var(--pad-x)] flex gap-1">
+            {stops.map((s, i) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => go(i)}
+                aria-label={`${pad(i + 1)} — ${s.district}`}
+                className="relative h-3 flex-1 cursor-pointer"
               >
-                {/* Scaled District Seal */}
-                <img
-                  src={districtData[activeIndex].districtSeal}
-                  alt={districtData[activeIndex].district}
-                  className="w-22 sm:w-26 md:w-30 h-auto object-contain filter drop-shadow-[0_0_25px_rgba(0,0,0,0.95)] select-none"
-                />
+                <span className="absolute inset-x-0 top-1/2 h-px bg-[var(--hair)] overflow-hidden">
+                  <motion.span
+                    className="absolute inset-0 bg-[var(--ivory)] origin-left"
+                    animate={{ scaleX: i <= index ? 1 : 0 }}
+                    transition={{ duration: 0.8, ease: EASE }}
+                  />
+                </span>
+              </button>
+            ))}
+          </div>
 
-                {/* Text Card anchored snugly beneath Seal */}
-                <img
-                  src={districtData[activeIndex].textCard}
-                  alt={districtData[activeIndex].title}
-                  className="-mt-2 sm:-mt-4 w-full max-w-[360px] sm:max-w-[420px] md:max-w-[480px] lg:max-w-[520px] h-auto object-contain filter drop-shadow-[0_0_40px_rgba(214,178,101,0.55)] brightness-120 contrast-105 select-none"
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+          {/* Copy column */}
+          <section className="absolute inset-x-[var(--pad-x)] bottom-[calc(var(--pad-y)+3rem)] max-w-[36rem] lg:max-w-none lg:inset-x-auto lg:bottom-auto lg:right-[var(--pad-x)] lg:top-1/2 lg:-translate-y-1/2 lg:w-[min(30rem,34vw)]">
+            <StopCopy index={index} />
+          </section>
 
-        {/* ================= 6. FIXED HEADER BAR (Z-50, STRICT TOP LAYER) ================= */}
-        <div className="absolute top-0 inset-x-0 z-50 h-20 sm:h-24 bg-[#070707]/90 backdrop-blur-md border-b border-amber-500/20 flex items-center justify-center pointer-events-none shadow-[0_6px_30px_rgba(0,0,0,0.85)]">
-          <h2 className="text-3xl sm:text-5xl font-serif tracking-[0.35em] text-[#d6b265] uppercase drop-shadow-[0_0_20px_rgba(214,178,101,0.5)]">
-            TIMELINE
-          </h2>
-        </div>
+          {/* Footer line */}
+          <footer className="absolute bottom-[var(--pad-y)] inset-x-[var(--pad-x)] flex items-center gap-6">
+            <span className="hidden md:block eyebrow text-[var(--ivory-faint)] whitespace-nowrap">A journey without return</span>
+            <span className="hidden md:block h-px flex-1 bg-[var(--hair)]" />
+            <NextStop index={index} onGo={go} />
+          </footer>
+        </motion.div>
 
-      </div>
-    </section>
+        <Preloader progress={platesReady ? progress : Math.min(progress, 96)} visible={!ready} />
+      </main>
+    </MotionConfig>
   );
 }
